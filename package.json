@@ -1,0 +1,40 @@
+{
+  "name": "@red-cup-engineering/website-administration-reading-service",
+  "version": "0.2.1",
+  "type": "module",
+  "description": "Reads nested website administration and exhaustive source evidence for shared web engine conformance.",
+  "exports": {
+    ".": "./src/site-administration.mjs",
+    "./site-operation-observation": "./src/site-operation-observation.mjs",
+    "./scripts/read-sites.mjs": "./scripts/read-sites.mjs",
+    "./scripts/observe-site-operation.mjs": "./scripts/observe-site-operation.mjs",
+    "./web-conformance": {
+      "types": "./src/web-conformance.d.mts",
+      "import": "./src/web-conformance.mjs"
+    },
+    "./web-source-evidence": "./src/web-source-evidence.mjs",
+    "./scripts/check-web-conformance.mjs": "./scripts/check-web-conformance.mjs"
+  },
+  "bin": {
+    "read-sites": "./scripts/read-sites.mjs",
+    "observe-site-operation": "./scripts/observe-site-operation.mjs",
+    "check-web-conformance": "./scripts/check-web-conformance.mjs"
+  },
+  "files": [
+    "src",
+    "scripts"
+  ],
+  "scripts": {
+    "check": "node --check src/site-administration.mjs && node --check src/site-operation-observation.mjs && node --check src/web-source-evidence.mjs && node --check src/web-conformance.mjs && node --check scripts/check-web-conformance.mjs && node --check src/web-source-roles.mjs",
+    "test": "node --test",
+    "conformance": "node scripts/check-web-conformance.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@red-cup-engineering/computer-filepath-engineering-services-section": "workspace:*",
+    "@red-cup-engineering/javascript-computer": "workspace:*",
+    "typescript": "5.9.3"
+  }
+}
