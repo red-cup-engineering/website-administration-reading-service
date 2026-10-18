@@ -3,6 +3,11 @@
   "version": "0.2.1",
   "type": "module",
   "description": "Reads nested website administration and exhaustive source evidence for shared web engine conformance.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/red-cup-engineering/computer-systems-engineering-services-section.git",
+    "directory": "services/computer-systems-publishing-engineering-services-section/services/website-administration-reading-service"
+  },
   "exports": {
     ".": "./src/site-administration.mjs",
     "./site-operation-observation": "./src/site-operation-observation.mjs",
