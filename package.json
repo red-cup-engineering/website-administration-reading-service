@@ -5,8 +5,7 @@
   "description": "Reads nested website administration and exhaustive source evidence for shared web engine conformance.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/red-cup-engineering/computer-systems-engineering-services-section.git",
-    "directory": "services/computer-systems-publishing-engineering-services-section/services/website-administration-reading-service"
+    "url": "git+https://github.com/red-cup-engineering/website-administration-reading-service.git"
   },
   "exports": {
     ".": "./src/site-administration.mjs",
