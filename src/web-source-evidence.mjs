@@ -26,8 +26,16 @@ export function inspectWebSource({ path, text }) {
   if (typeof path !== "string" || typeof text !== "string") throw new TypeError("path and text required");
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true,
     /\.tsx$/.test(path) ? ts.ScriptKind.TSX : /\.jsx$/.test(path) ? ts.ScriptKind.JSX : /\.[mc]?ts$/.test(path) ? ts.ScriptKind.TS : ts.ScriptKind.JS);
-  const imports = readImports(text, path).filter((entry) => !entry.typeOnly);
   const bindings = new Map(), calls = [], signals = [], outputs = [], unknowns = [];
+  let imports = [];
+  try {
+    imports = readImports(text, path).filter((entry) => !entry.typeOnly);
+  } catch (error) {
+    // A source reader must retain an unreadable file in the report instead
+    // of aborting the whole estate scan when the supplier rejects syntax.
+    if (!(error instanceof SyntaxError)) throw error;
+    unknowns.push("source-parse-error");
+  }
   const emit = (kind, node, details = {}) => signals.push({ kind, line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1, ...details });
   if (source.parseDiagnostics.length) unknowns.push("source-parse-error");
   for (const entry of imports) if (entry.mode === "dynamic") unknowns.push(entry.specifier ? "dynamic-import-binding" : "nonliteral-dynamic-import");
