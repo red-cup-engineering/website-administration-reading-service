@@ -21,3 +21,9 @@ test("focus is an exact normalized site selector", () => {
   }], { focus: "https://one.example/" });
   assert.equal(result.packages.length, 1);
 });
+
+test("administration retains HEAD and HTML observation declarations", () => {
+  const result = projectSiteAdministration([{ name: "site", path: "site", manifest: { name: "site" }, configuration: { endpoints: { "site.example": { operations: [{ path: "/article", method: "HEAD", responseType: "none" }] } } } }]);
+  assert.equal(result.packages[0].endpoints[0].operations[0].method, "HEAD");
+  assert.equal(result.packages[0].endpoints[0].operations[0].responseType, "none");
+});

@@ -17,7 +17,11 @@
       "import": "./src/web-conformance.mjs"
     },
     "./web-source-evidence": "./src/web-source-evidence.mjs",
-    "./scripts/check-web-conformance.mjs": "./scripts/check-web-conformance.mjs"
+    "./scripts/check-web-conformance.mjs": "./scripts/check-web-conformance.mjs",
+    "./site-conformance": {
+      "types": "./src/site-conformance.d.mts",
+      "import": "./src/site-conformance.mjs"
+    }
   },
   "bin": {
     "read-sites": "./scripts/read-sites.mjs",
@@ -29,7 +33,7 @@
     "scripts"
   ],
   "scripts": {
-    "check": "node --check src/site-administration.mjs && node --check src/site-operation-observation.mjs && node --check src/web-source-evidence.mjs && node --check src/web-conformance.mjs && node --check scripts/check-web-conformance.mjs && node --check src/web-source-roles.mjs",
+    "check": "node --check src/site-administration.mjs && node --check src/site-operation-observation.mjs && node --check src/web-source-evidence.mjs && node --check src/web-conformance.mjs && node --check scripts/check-web-conformance.mjs && node --check src/web-source-roles.mjs && node --check src/site-conformance.mjs && node --check scripts/observe-site-operation.mjs",
     "test": "node --test",
     "conformance": "node scripts/check-web-conformance.mjs"
   },

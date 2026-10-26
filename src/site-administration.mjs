@@ -80,12 +80,15 @@ function operationProbes(input) {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const pathname = typeof item.path === "string" && item.path.trim() !== "" ? item.path.trim() : null;
     if (pathname === null) return [];
-    return [operationProbe(pathname, item.method === "POST" ? "POST" : "GET", item.body, integerOrNull(item.timeoutMs) ?? undefined)];
+    return [operationProbe(pathname, item.method ?? "GET", item.body, integerOrNull(item.timeoutMs) ?? undefined, item.responseType)];
   }));
 }
 
-function operationProbe(pathname, method = "GET", body = null, timeoutMs = 5000) {
-  return Object.freeze({ path: pathname.startsWith("/") ? pathname : `/${pathname}`, method, body, timeoutMs });
+function operationProbe(pathname, method = "GET", body = null, timeoutMs = 5000, responseType) {
+  if (!["GET", "HEAD", "POST"].includes(method)) throw new TypeError("operation method must be GET, HEAD, or POST");
+  if (responseType !== undefined && !["json", "text", "none"].includes(responseType)) throw new TypeError("invalid operation responseType");
+  return Object.freeze({ path: pathname.startsWith("/") ? pathname : `/${pathname}`, method, body, timeoutMs,
+    ...(responseType === undefined ? {} : { responseType }) });
 }
 
 function matchesSiteFocus(pkg, focus) {
