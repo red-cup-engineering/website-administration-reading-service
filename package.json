@@ -1,6 +1,6 @@
 {
   "name": "@red-cup-engineering/website-administration-reading-service",
-  "version": "0.2.2",
+  "version": "0.2.2-dev.0",
   "type": "module",
   "description": "Reads nested website administration and exhaustive source evidence for shared web engine conformance.",
   "repository": {
@@ -70,5 +70,8 @@
     "@red-cup-engineering/computer-system-engine": {
       "optional": true
     }
+  },
+  "publishConfig": {
+    "tag": "dev"
   }
 }
