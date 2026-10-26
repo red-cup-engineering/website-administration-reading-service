@@ -188,3 +188,21 @@ test('original Web incident and quota episode testimony remain bounded investiga
   const second = projectSiteConformance({site,owner:'site-owner',sourceContext:{policyRevision:'policy-1'},evaluatedAt:now,routes:[route()],observations:[],reportedEvidence:original,reportedTargets:[target]});
   assert.equal(second.findings.find(value => value.code.startsWith('reported-evidence-unresolved:')).id,finding.id);
 });
+
+test('declared external estate reports become investigations without additional HTTP acquisition',async t => {
+  const {dependencies,calls} = await fixture(t,(req,res) => serve(req,res));
+  const target='https://casino.example/',incidentId='web:'+'d'.repeat(24),evidenceId='sha256:'+'e'.repeat(64);
+  const original={schema:'561.web-evidence-projection.v1',asOf:now,incidents:[{incidentId,target,family:'availability',
+    sourceDisposition:{decision:'intentionally-unavailable'},evidence:[{incidentId,target,family:'availability',
+      kind:'reported',result:'unknown',probe:'mail-report',observedAt:now,evidenceId,
+      delivery:{digest:'sha256:'+'f'.repeat(64),channel:'fastmail',receivedAt:now}}]}]};
+  const report=await acquireSiteConformance(policy({reportedTargets:[target]}),{site,reportedEvidence:original},dependencies);
+  const finding=report.findings.find(value=>value.code.startsWith('reported-evidence-unresolved:'));
+  assert.equal(finding.action,'investigate');assert.equal(finding.url,null);
+  assert.equal(finding.observed.target,target);assert.equal(finding.observed.reportedSourceDisposition.decision,'intentionally-unavailable');
+  assert.deepEqual(calls.map(value=>value.url),['/robots.txt','/']);
+  const unselected=projectSiteConformance({site,owner:'site-owner',sourceContext:{policyRevision:'policy-1'},evaluatedAt:now,
+    routes:[route()],observations:[],reportedEvidence:original});
+  assert.equal(unselected.summary.reportedIncidents,0);
+  await assert.rejects(()=>acquireSiteConformance(policy({reportedTargets:['https://user:secret@casino.example/']}),{site},dependencies),/credential-free/);
+});

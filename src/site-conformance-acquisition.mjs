@@ -1,7 +1,7 @@
 import {fetchPublicHttpResponse} from '@red-cup-engineering/http-services-section/public-response';
 import {readResponseBody} from '@red-cup-engineering/http-services-section/body/web';
 import {observeSiteOperation} from './site-operation-observation.mjs';
-import {projectSiteConformance} from './site-conformance.mjs';
+import {projectSiteConformance,admitReportedTargets} from './site-conformance.mjs';
 
 export const SITE_ACQUISITION_LIMITS = Object.freeze({requests:129,timeoutMs:60_000,requestTimeoutMs:10_000,
   bodyBytes:2_097_152,totalBodyBytes:8_388_608,robotsBytes:512_000,inputBytes:1_048_576});
@@ -93,9 +93,7 @@ function installPolicy(raw) {
   policy.routes = admitted.records.map(({observation,checks,status,...route}) => route);
   policy.maxAgeMs = admitted.maxAgeMs;
   policy.sourceContext = {...admitted.sourceContext};
-  if (policy.reportedTargets !== undefined && (!Array.isArray(policy.reportedTargets) || policy.reportedTargets.length > 32 ||
-      policy.reportedTargets.some(value => typeof value !== 'string' || !/^provider:[a-z0-9][a-z0-9./_-]*$/.test(value))))
-    throw new TypeError('source-declared provider evidence targets required');
+  if (policy.reportedTargets !== undefined) admitReportedTargets(policy.reportedTargets);
   if (Object.keys(policy.sourceContext).some(key => !['policyRevision','sourceRevision','deploymentRevision'].includes(key))) throw new TypeError('unsupported installed source context');
   for (const key of ['sourceRevision','deploymentRevision']) if (policy.sourceContext[key] !== undefined) nonempty(policy.sourceContext[key],key);
   const limits = policy.limits ?? {};
