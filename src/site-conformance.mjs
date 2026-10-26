@@ -7,6 +7,19 @@ const INTENTS = new Set(["index", "exclude", "redirect", "alternate", "gone", "u
 const DEFAULT_STATUSES = { index: [200], exclude: [200], alternate: [200], redirect: [301, 302, 303, 307, 308], gone: [404, 410] };
 export const SITE_CONFORMANCE_LIMITS = Object.freeze({ routes: 128, observations: 1024, searchConsole: 256, bodyBytes: 2_097_152, totalBodyBytes: 33_554_432 });
 
+export function admitReportedTargets(targets = []) {
+  if (!Array.isArray(targets) || targets.length > 128 || new Set(targets).size !== targets.length)
+    throw new TypeError("bounded distinct source-declared reported evidence targets required");
+  for (const target of targets) {
+    if (typeof target !== "string" || target.length > 2048) throw new TypeError("source-declared reported evidence target required");
+    if (/^provider:[a-z0-9][a-z0-9./_-]*$/u.test(target)) continue;
+    const url = new URL(target);
+    if (url.protocol !== "https:" || url.username || url.password || url.hash || url.href !== target)
+      throw new TypeError("canonical credential-free HTTPS reported evidence target required");
+  }
+  return targets;
+}
+
 /** Pure, bounded reconciliation of route policy, HTTP observations, and provider
  * notices. The declared cover is exact URL + method, never a whole-domain pass.
  * It neither fetches, hires, pays, mutates a site, nor requests Google validation.
@@ -131,9 +144,7 @@ export function projectSiteConformance(input) {
   if (reported !== undefined) {
     if (!reported || reported.schema !== "561.web-evidence-projection.v1" || !Array.isArray(reported.incidents) || reported.incidents.length > 128 ||
         Buffer.byteLength(JSON.stringify(reported)) > 1_048_576) throw new TypeError("bounded original Web evidence projection required");
-    const providerTargets = input.reportedTargets ?? [];
-    if (!Array.isArray(providerTargets) || providerTargets.length > 32 || providerTargets.some(value => !/^provider:[a-z0-9][a-z0-9./_-]*$/.test(value)))
-      throw new TypeError("source-declared provider evidence targets required");
+    const reportedTargets = admitReportedTargets(input.reportedTargets);
     const incidentIds = new Set(); let count = 0;
     for (const incident of reported.incidents) {
       if (!incident || !/^web:[a-f0-9]{24}$/.test(incident.incidentId) || incidentIds.has(incident.incidentId) ||
@@ -156,7 +167,7 @@ export function projectSiteConformance(input) {
         evidence.push({id:item.evidenceId,source:`web-evidence/${item.kind}`,observedAt:item.observedAt,
           ...(provider ? {provider:target} : {url:httpUrl(target)}),delivery:{...item.delivery}});
       }
-      if (provider ? !providerTargets.includes(target) : new URL(target).origin !== origin) continue;
+      if (!reportedTargets.includes(target) && (provider || new URL(target).origin !== origin)) continue;
       reportedIncidents++;
       const route = provider ? null : routes.find(route => route.url === httpUrl(target) && route.method === "GET");
       add(route,`reported-evidence-unresolved:${incident.incidentId}`,"unknown","investigate",
