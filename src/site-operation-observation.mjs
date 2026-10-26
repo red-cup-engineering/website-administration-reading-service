@@ -41,6 +41,7 @@ export async function observeSiteOperation(request, options = {}) {
     response = await fetchImpl(url, {
       method, redirect, signal,
       headers: { Accept: responseType === "json" ? "application/json" : "text/html, text/plain;q=0.9, */*;q=0.8",
+        ...(options.identityContentCoding ? { "Accept-Encoding": "identity" } : {}),
         ...(options.userAgent ? { "User-Agent": options.userAgent } : {}),
         ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
       ...(method === "POST" ? { body: JSON.stringify(request.body ?? {}) } : {}),

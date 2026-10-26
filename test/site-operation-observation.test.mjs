@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createServer } from "node:http";
+import { gzipSync } from "node:zlib";
 
 import { observeSiteOperation, projectSiteOperationRequests } from "../src/site-operation-observation.mjs";
 
@@ -69,4 +71,68 @@ test("HEAD does not parse an absent body, and POST remains explicit", async () =
   assert.equal(seen.method, "POST");
   assert.deepEqual(JSON.parse(seen.body), { check: true });
   assert.deepEqual(post.body, { ok: true });
+});
+
+async function httpFixture(t, handler) {
+  const calls = [];
+  const server = createServer((request, response) => {
+    calls.push({ method: request.method, url: request.url, acceptEncoding: request.headers["accept-encoding"] });
+    handler(request, response);
+  });
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  return { url: `http://127.0.0.1:${server.address().port}/`, calls };
+}
+
+test("identity content coding is negotiated on the native HTTP wire only when selected", async t => {
+  const html = '<html><head><link rel="canonical" href="/"></head><body>Identity representation</body></html>';
+  const { url, calls } = await httpFixture(t, (request, response) => {
+    const identity = request.headers["accept-encoding"] === "identity";
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8", ...(identity ? {} : { "content-encoding": "gzip" }) });
+    response.end(identity ? html : gzipSync(html));
+  });
+  const request = { endpoint: "native-fixture", url, responseType: "text" };
+  const selected = await observeSiteOperation(request, { identityContentCoding: true, safeErrors: true });
+  assert.equal(calls[0].acceptEncoding, "identity");
+  assert.equal(selected.status, "witness");
+  assert.equal(selected.httpStatus, 200);
+  assert.equal(selected.body, html);
+  assert.equal(selected.bodyTruncated, false);
+  assert.equal(selected.headers["content-encoding"], undefined);
+  const ordinary = await observeSiteOperation(request);
+  assert.notEqual(calls[1].acceptEncoding, "identity");
+  assert.equal(ordinary.status, "witness");
+  assert.equal(ordinary.headers["content-encoding"], "gzip");
+  assert.equal(ordinary.body, html);
+  assert.equal(calls.length, 2);
+});
+
+test("a native server that ignores identity negotiation remains an unread representation", async t => {
+  const { url, calls } = await httpFixture(t, (_request, response) => {
+    response.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
+    response.end(gzipSync('<meta name="robots" content="noindex">'));
+  });
+  const result = await observeSiteOperation({ endpoint: "native-fixture", url, responseType: "text" },
+    { identityContentCoding: true, safeErrors: true });
+  assert.deepEqual(calls, [{ method: "GET", url: "/", acceptEncoding: "identity" }]);
+  assert.equal(result.httpStatus, 200);
+  assert.equal(result.headers["content-encoding"], "gzip");
+  assert.equal(result.status, "obstruction");
+  assert.equal(result.reason, "response-representation-unread");
+  assert.equal(result.bodyTruncated, true);
+  assert.equal(Object.hasOwn(result, "body"), false);
+});
+
+test("a native server refusing identity negotiation retains its HTTP refusal without retry", async t => {
+  const { url, calls } = await httpFixture(t, (_request, response) => {
+    response.writeHead(406, { "content-type": "text/plain" });
+    response.end("Identity representation unavailable");
+  });
+  const result = await observeSiteOperation({ endpoint: "native-fixture", url, responseType: "text" },
+    { identityContentCoding: true, safeErrors: true });
+  assert.deepEqual(calls, [{ method: "GET", url: "/", acceptEncoding: "identity" }]);
+  assert.equal(result.httpStatus, 406);
+  assert.equal(result.status, "obstruction");
+  assert.equal(result.reason, "HTTP 406");
+  assert.equal(result.body, "Identity representation unavailable");
 });
