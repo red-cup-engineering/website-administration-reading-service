@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const METHODS = new Set(["GET", "HEAD", "POST"]);
 const RESPONSE_TYPES = new Set(["json", "text", "none"]);
-const EVIDENCE_HEADERS = ["content-type", "location", "link", "x-robots-tag", "etag", "last-modified", "cache-control", "retry-after", "x-deployment-revision"];
+const EVIDENCE_HEADERS = ["content-type", "content-encoding", "location", "link", "x-robots-tag", "etag", "last-modified", "cache-control", "retry-after", "x-deployment-revision"];
 
 export function projectSiteOperationRequests(administration, { target } = {}) {
   if (!administration || !Array.isArray(administration.packages)) throw new TypeError("administration must carry packages");
@@ -31,14 +31,17 @@ export async function observeSiteOperation(request, options = {}) {
   const redirect = request.redirect ?? "manual";
   if (!["manual", "follow", "error"].includes(redirect)) throw new TypeError("invalid redirect policy");
   const observedAt = clock(), controller = new AbortController();
+  const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
   const timeout = setTimeout(() => controller.abort(), boundedTimeout(request.timeoutMs));
   const evidence = { kind: "website-administration.operation-observation", schemaVersion: 1, endpoint, url, method,
     observedAt, source: "http-probe", responseType, redirect, httpStatus: null, finalUrl: null, redirected: false,
     headers: {}, deploymentRevision: null, bodyTruncated: false };
+  let response;
   try {
-    const response = await fetchImpl(url, {
-      method, redirect, signal: controller.signal,
+    response = await fetchImpl(url, {
+      method, redirect, signal,
       headers: { Accept: responseType === "json" ? "application/json" : "text/html, text/plain;q=0.9, */*;q=0.8",
+        ...(options.userAgent ? { "User-Agent": options.userAgent } : {}),
         ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
       ...(method === "POST" ? { body: JSON.stringify(request.body ?? {}) } : {}),
     });
@@ -48,19 +51,41 @@ export async function observeSiteOperation(request, options = {}) {
     evidence.headers = Object.fromEntries(EVIDENCE_HEADERS.flatMap((name) => {
       const value = response.headers?.get?.(name); return value === null || value === undefined ? [] : [[name, value]];
     }));
+    if (response.headersDistinct && typeof response.headersDistinct === "object") {
+      evidence.headerValues = Object.fromEntries(EVIDENCE_HEADERS.flatMap((name) => {
+        const values = response.headersDistinct[name];
+        return Array.isArray(values) && values.every(value => typeof value === "string") ? [[name, [...values]]] : [];
+      }));
+    }
     evidence.deploymentRevision = evidence.headers["x-deployment-revision"] ?? null;
     let body = null;
+    if (options.identityContentCoding && evidence.headers["content-encoding"] && evidence.headers["content-encoding"].toLowerCase() !== "identity")
+      throw Object.assign(new Error("unsupported-response-content-coding"), { code: "REPRESENTATION_UNREAD" });
+    const charset = evidence.headers["content-type"]?.match(/;\s*charset\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;\s]+))/i);
+    if (options.identityContentCoding && charset && !/^(?:utf-8|utf8|us-ascii|ascii)$/i.test(charset[1] ?? charset[2] ?? charset[3]))
+      throw Object.assign(new Error("unsupported-response-charset"), { code: "REPRESENTATION_UNREAD" });
     if (method === "HEAD" || responseType === "none") await response.body?.cancel?.();
     else if (!response.body?.getReader && !response.text && response.json && responseType === "json") body = await response.json();
     else {
-      const text = await boundedBody(response, boundedBodyLimit(request.maxBodyBytes));
+      let text;
+      if (options.readResponseBody) {
+        const bytes = await options.readResponseBody(response, { maxBytes: boundedBodyLimit(request.maxBodyBytes), signal });
+        evidence.bodyBytes = bytes.byteLength;
+        evidence.bodyDigest = { algorithm: "sha256", representation: "received-identity-bytes", value: createHash("sha256").update(bytes).digest("hex") };
+        try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+        catch { throw Object.assign(new Error("response-not-utf8"), { code: "REPRESENTATION_UNREAD" }); }
+      } else text = await boundedBody(response, boundedBodyLimit(request.maxBodyBytes));
       body = responseType === "json" && response.ok ? JSON.parse(text) : text;
     }
     return finish({ ...evidence, status: response.ok ? "witness" : "obstruction", body,
       ...(response.ok ? {} : { reason: `HTTP ${response.status}` }) }, clock());
   } catch (error) {
-    return finish({ ...evidence, status: "obstruction", bodyTruncated: error?.code === "BODY_LIMIT",
-      reason: controller.signal.aborted ? "operation-timeout" : error instanceof Error ? error.message : String(error) }, clock());
+    if (response?.body && !response.body.locked) void response.body.cancel?.().catch?.(() => {});
+    return finish({ ...evidence, status: "obstruction", bodyTruncated: ["BODY_LIMIT", "body-too-large", "REPRESENTATION_UNREAD"].includes(error?.code),
+      reason: signal.aborted ? "operation-timeout" : options.safeErrors ?
+        ["BODY_LIMIT", "body-too-large"].includes(error?.code) ? "response-body-limit" :
+          error?.code === "REPRESENTATION_UNREAD" ? "response-representation-unread" : "operation-failed"
+        : error instanceof Error ? error.message : String(error) }, clock());
   } finally { clearTimeout(timeout); }
 }
 
