@@ -222,22 +222,28 @@ reinspection. This module does not hire, charge, release, or mutate anything.
 Provider selection, Work identity, budgets, and receiving remain with their
 existing owners.
 
-The operation observer uses Node built-ins. Site conformance consumes the original
-Serialization 0.1.0 Link/header parser. The existing source/AST analyzer additionally
-requires the declared workspace providers and TypeScript. The repository's
-inherited package lock still refers to the older path-walking provider; these
-bounded acquisition checks do not qualify that source-analysis installation.
+The package selects immutable registry editions of its original suppliers:
+HTTP 0.6.5-dev.90 supplies `./public-response`, Serialization 0.1.0 supplies
+Link/header parsing, Filepath 0.1.1 supplies source traversal, and
+JavaScript Computer 0.3.4 plus TypeScript 5.9.3 supply source analysis. The HTTP
+release has the same source tree as the original qualified acquisition commit
+`6ec7b27e7a8355523ae5b6c59f07f4c8c85ad917`.
 
-The acquisition export additionally requires the qualified original HTTP source
-with `./public-response`. Select its exact commit or a new original registry
-artifact carrying that export; existing HTTP 0.6.5-dev.2 does not include it.
-HTTP exports its authored modules directly and requires no build/prepare step.
-Its original registry configuration is `https://registry.561.group/`; the
-receiving install must preserve that registry for original transitive suppliers.
-The native application also consumes Computer System Engine 0.1.16 and JSON
-Schema 0.5.0. `npm run test:acquisition` exercises the original source and native
-constructors. Source qualification does not publish an artifact, install a host,
-schedule monitoring, submit Google validation or establish a production outcome.
+Install the committed lock with `npm ci --ignore-scripts`. The repository's
+registry policy reads Engineering packages from `registry.561.group` and
+public dependencies from npm. Run `npm run check` and `npm run test:core` for
+the standalone source analysis, public acquisition and conformance operations.
+
+The native application consumes the host's Computer System Engine
+`0.1.17-dev.200` through an exact optional peer. A standalone observer does not
+install the host's complete capability graph. To use
+`createSiteConformanceObservationApplication`, the host must provide that peer;
+its existing dynamic import then consumes the genuine native operation
+constructor. JSON Schema `0.5.0` remains a regular dependency. With the host
+peer installed, `npm run test:native` exercises the native application and
+`npm test` runs the complete original suite. `npm run test:acquisition`
+retains the focused acquisition and native application cases. Host installation
+and recurring execution use the application and schedule declarations above.
 
 The contract follows Google's distinction between intended exclusions and actual
 indexing errors: <https://support.google.com/webmasters/answer/7440203?hl=en>.
