@@ -185,3 +185,35 @@ test("a matching canonical header cannot conceal uninspected or truncated HTML o
   const complete = projectSiteConformance(input({ routes, observations: [observation({ headers })] }));
   assert.equal(complete.complete, true);
 });
+
+test("canonical Link parameters retain order-independent relations and context without silently losing contradictions", () => {
+  const routes = [route({ canonicalUrl: url })];
+  const read = link => projectSiteConformance(input({ routes,
+    observations: [observation({ headers: { "content-type": "text/html", link } })] }));
+  const contradiction = read('<https://site.example/wrong>; type="text/html"; rel="canonical", </article>; rel="canonical"');
+  assert.equal(contradiction.findings[0].code, "canonical-target");
+  assert.equal(contradiction.findings[0].status, "nonconformant");
+  assert.deepEqual(contradiction.findings[0].observed.sort(), [url, "https://site.example/wrong"].sort());
+  assert.equal(read('</article>; type="text/html"; title="One, two"; rel="alternate canonical"').complete, true);
+  assert.equal(read('</wrong>; rel="canonical"; anchor="/other", </article>; rel="canonical"').complete, true);
+  for (const link of ['</article>; rel="canonical"; rel="other"', '</article>; rel="canonical"; malformed',
+    '</article>; rel="canonical"; title="unfinished', '</article>; rel="canonical"; anchor="/other"']) {
+    const report = read(link);
+    assert.equal(report.complete, false, link);
+    assert.equal(report.findings[0].status, "unknown", link);
+  }
+});
+
+test("scoped X-Robots directives require original field boundaries to prove an absent Google exclusion", () => {
+  const read = (header, headerValues) => projectSiteConformance(input({ observations: [observation({
+    headers: { "content-type": "text/html", "x-robots-tag": header }, ...(headerValues ? {headerValues:{"x-robots-tag":headerValues}} : {})
+  })] }));
+  const unscoped = read("otherbot: index, noindex", ["otherbot: index", "noindex"]);
+  assert.equal(unscoped.findings[0].code, "indexing-directive");
+  assert.equal(unscoped.findings[0].status, "nonconformant");
+  assert.equal(read("otherbot: index, noindex", ["otherbot: index, noindex"]).complete, true);
+  assert.equal(read("otherbot: noindex, nofollow", ["otherbot: noindex, nofollow"]).complete, true);
+  const ambiguous = read("otherbot: index, noindex");
+  assert.equal(ambiguous.complete, false);
+  assert.equal(ambiguous.findings[0].status, "unknown");
+});

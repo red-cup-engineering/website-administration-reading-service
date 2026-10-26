@@ -8,6 +8,12 @@
     "url": "git+https://github.com/red-cup-engineering/website-administration-reading-service.git"
   },
   "exports": {
+    "./site-conformance-acquisition": {
+      "types": "./src/site-conformance-acquisition.d.mts",
+      "import": "./src/site-conformance-acquisition.mjs"
+    },
+    "./site-conformance-application": "./src/site-conformance-application.mjs",
+    "./scripts/acquire-site-conformance.mjs": "./scripts/acquire-site-conformance.mjs",
     ".": "./src/site-administration.mjs",
     "./site-operation-observation": "./src/site-operation-observation.mjs",
     "./scripts/read-sites.mjs": "./scripts/read-sites.mjs",
@@ -24,6 +30,7 @@
     }
   },
   "bin": {
+    "acquire-site-conformance": "./scripts/acquire-site-conformance.mjs",
     "read-sites": "./scripts/read-sites.mjs",
     "observe-site-operation": "./scripts/observe-site-operation.mjs",
     "check-web-conformance": "./scripts/check-web-conformance.mjs"
@@ -33,14 +40,19 @@
     "scripts"
   ],
   "scripts": {
-    "check": "node --check src/site-administration.mjs && node --check src/site-operation-observation.mjs && node --check src/web-source-evidence.mjs && node --check src/web-conformance.mjs && node --check scripts/check-web-conformance.mjs && node --check src/web-source-roles.mjs && node --check src/site-conformance.mjs && node --check scripts/observe-site-operation.mjs",
+    "check": "node --check src/site-administration.mjs && node --check src/site-operation-observation.mjs && node --check src/web-source-evidence.mjs && node --check src/web-conformance.mjs && node --check scripts/check-web-conformance.mjs && node --check src/web-source-roles.mjs && node --check src/site-conformance.mjs && node --check scripts/observe-site-operation.mjs && node --check src/site-conformance-acquisition.mjs && node --check src/site-conformance-application.mjs && node --check src/site-robots.mjs && node --check scripts/acquire-site-conformance.mjs",
     "test": "node --test",
-    "conformance": "node scripts/check-web-conformance.mjs"
+    "conformance": "node scripts/check-web-conformance.mjs",
+    "test:acquisition": "node --test test/site-operation-observation.test.mjs test/site-conformance.test.mjs test/site-conformance-acquisition.test.mjs test/site-conformance-application.test.mjs"
   },
   "engines": {
     "node": ">=24"
   },
   "dependencies": {
+    "@red-cup-engineering/computer-serialized-content-engineering-services-section": "0.1.0",
+    "@red-cup-engineering/http-services-section": "git+https://github.com/red-cup-engineering/http-engineering-services-section.git#6ec7b27e7a8355523ae5b6c59f07f4c8c85ad917",
+    "@red-cup-engineering/computer-system-engine": "0.1.16",
+    "@red-cup-engineering/json-schema-services-section": "0.5.0",
     "@red-cup-engineering/computer-filepath-engineering-services-section": "workspace:*",
     "@red-cup-engineering/javascript-computer": "workspace:*",
     "typescript": "5.9.3"

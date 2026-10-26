@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { readRobotsAccess } from "./site-robots.mjs";
+import { parseLinkHeader } from "@red-cup-engineering/computer-serialized-content-engineering-services-section/services/http-data-services-section/src/link";
+import { splitHeaderList, splitHeaderParameters } from "@red-cup-engineering/computer-serialized-content-engineering-services-section/services/http-data-services-section/src/header-value";
 
 const INTENTS = new Set(["index", "exclude", "redirect", "alternate", "gone", "unknown"]);
 const DEFAULT_STATUSES = { index: [200], exclude: [200], alternate: [200], redirect: [301, 302, 303, 307, 308], gone: [404, 410] };
@@ -19,6 +22,7 @@ export function projectSiteConformance(input) {
   const sourceContext = { ...input.sourceContext, policyRevision: text(input.sourceContext?.policyRevision, "policyRevision") };
   const evaluatedAt = text(input.evaluatedAt, "evaluatedAt"), now = timestamp(evaluatedAt);
   const maxAgeMs = input.maxAgeMs ?? 86_400_000;
+  if (input.robotsUserAgent !== undefined && input.robotsUserAgent !== "Googlebot") throw new TypeError("the admitted robots profile is Googlebot");
   if (!Number.isSafeInteger(maxAgeMs) || maxAgeMs < 0) throw new TypeError("maxAgeMs must be a nonnegative safe integer");
   const routes = input.routes.map(routePolicy), routeKeys = new Set();
   for (const route of routes) { const key = routeKey(route); if (new URL(route.url).origin !== origin) throw new TypeError("route must belong to the site's exact HTTP origin"); if (routeKeys.has(key)) throw new TypeError("duplicate route policy"); routeKeys.add(key); }
@@ -81,6 +85,21 @@ export function projectSiteConformance(input) {
         }
       }
     }
+    if (input.robotsUserAgent && ["index", "alternate"].includes(route.intent)) {
+      const robotsUrl = new URL("/robots.txt", siteUrl).href;
+      const candidates = observations.filter(value => value.url === robotsUrl && value.method === "GET").sort((a, b) => b.time - a.time || a.id.localeCompare(b.id));
+      const robots = candidates[0];
+      let reading = { allowed: null, reason: "robots-observation-missing" };
+      if (robots) {
+        if (robots.time > now || robots.completedTime !== null && (robots.completedTime > now || robots.completedTime < robots.time)) reading.reason = "robots-observation-time-unbound";
+        else if (now - robots.time > maxAgeMs) reading.reason = "robots-observation-stale";
+        else if (sourceContext.deploymentRevision && robots.deploymentRevision !== sourceContext.deploymentRevision) reading.reason = "robots-deployment-revision-unbound";
+        else if (candidates.some(value => value.time === robots.time && observationSignature(value) !== observationSignature(robots))) reading.reason = "robots-observation-conflict";
+        else reading = readRobotsAccess(robots, route.url, input.robotsUserAgent);
+      }
+      check("robots-access", reading.allowed === true ? "conformant" : reading.allowed === false ? "nonconformant" : "unknown",
+        { userAgent: input.robotsUserAgent, allowed: true, profile: "literal-prefix-and-terminal-anchor" }, reading, robots ? [reference(robots)] : []);
+    }
     records.push({ ...route, observation: observation ? reference(observation) : null, checks, status: aggregate(checks.map((item) => item.status)) });
   }
   for (const raw of input.searchConsole ?? []) {
@@ -107,13 +126,54 @@ export function projectSiteConformance(input) {
     }
     providerNotices.push({ id: alert.id, property: alert.property, url, reason: alert.reason, classification, evidence, sourceContext: { ...sourceContext } });
   }
+  const reported = input.reportedEvidence;
+  let reportedIncidents = 0;
+  if (reported !== undefined) {
+    if (!reported || reported.schema !== "561.web-evidence-projection.v1" || !Array.isArray(reported.incidents) || reported.incidents.length > 128 ||
+        Buffer.byteLength(JSON.stringify(reported)) > 1_048_576) throw new TypeError("bounded original Web evidence projection required");
+    const providerTargets = input.reportedTargets ?? [];
+    if (!Array.isArray(providerTargets) || providerTargets.length > 32 || providerTargets.some(value => !/^provider:[a-z0-9][a-z0-9./_-]*$/.test(value)))
+      throw new TypeError("source-declared provider evidence targets required");
+    const incidentIds = new Set(); let count = 0;
+    for (const incident of reported.incidents) {
+      if (!incident || !/^web:[a-f0-9]{24}$/.test(incident.incidentId) || incidentIds.has(incident.incidentId) ||
+          !/^[a-z0-9][a-z0-9._/-]{0,100}$/.test(incident.family) || !Array.isArray(incident.evidence) || !incident.evidence.length)
+        throw new TypeError("original Web incident identity and evidence required");
+      incidentIds.add(incident.incidentId);
+      const target = text(incident.target,"reported target");
+      const provider = target.startsWith("provider:");
+      if (provider ? !/^provider:[a-z0-9][a-z0-9./_-]*$/.test(target) : !httpUrl(target)) throw new TypeError("invalid reported target");
+      const evidence = [], ids = new Set();
+      for (const item of incident.evidence) {
+        if (++count > 1024 || !item || !/^sha256:[a-f0-9]{64}$/.test(item.evidenceId) ||
+            item.incidentId !== incident.incidentId || item.target !== target || item.family !== incident.family ||
+            !["reported","provider-notice","independent-probe"].includes(item.kind) ||
+            !["fail","pass","warning","unknown"].includes(item.result) ||
+            !/^sha256:[a-f0-9]{64}$/.test(item.delivery?.digest)) throw new TypeError("original bounded Web evidence required");
+        timestamp(item.observedAt); timestamp(item.delivery.receivedAt);
+        if (ids.has(item.evidenceId)) continue;
+        ids.add(item.evidenceId);
+        evidence.push({id:item.evidenceId,source:`web-evidence/${item.kind}`,observedAt:item.observedAt,
+          ...(provider ? {provider:target} : {url:httpUrl(target)}),delivery:{...item.delivery}});
+      }
+      if (provider ? !providerTargets.includes(target) : new URL(target).origin !== origin) continue;
+      reportedIncidents++;
+      const route = provider ? null : routes.find(route => route.url === httpUrl(target) && route.method === "GET");
+      add(route,`reported-evidence-unresolved:${incident.incidentId}`,"unknown","investigate",
+        "source-qualified current evidence and original owner receiving; an emailed diagnosis grants no repair authority",
+        {incidentId:incident.incidentId,target,family:incident.family,reportedStatus:incident.status ?? null,
+          ...(incident.sourceDisposition ? {reportedSourceDisposition:incident.sourceDisposition} : {}),
+          ...(incident.quotaEpisodes ? {quotaEpisodes:incident.quotaEpisodes} : {})},evidence);
+    }
+  }
   if (!routes.length) add(null, "route-cover-empty", "unknown", "investigate", "an explicit nonempty route cover", [], []);
   const ordered = [...findings.values()].sort((a, b) => a.id.localeCompare(b.id));
   return { kind: "website-administration.site-conformance", schemaVersion: 1, site, owner, sourceContext, evaluatedAt, maxAgeMs,
     scope: { origin, routes: routes.map(({ url, method }) => ({ url, method })),
       evidence: "Exact HTTP responses, server-delivered indexing directives, declared canonical targets, and source-qualified provider notices.",
-      excludes: ["unlisted routes", "browser rendering and accessibility", "robots.txt interpretation without separate route evidence", "proof of Google indexing", "payment, hiring, deployment, or repair execution"] },
-    records, findings: ordered, providerNotices, summary: { routes: records.length, observations: observations.length, findings: ordered.length, providerNotices: providerNotices.length,
+      ...(input.robotsUserAgent ? { robots: { userAgent: input.robotsUserAgent, profile: "literal-prefix-and-terminal-anchor" } } : {}),
+      excludes: ["unlisted routes", "browser rendering and accessibility", ...(input.robotsUserAgent ? ["Google cached robots.txt state and unsupported robots patterns"] : ["robots.txt interpretation without separate route evidence"]), "proof of Google indexing", "payment, hiring, deployment, or repair execution"] },
+    records, findings: ordered, providerNotices, ...(reported === undefined ? {} : {reportedEvidence:reported}), summary: { routes: records.length, observations: observations.length, findings: ordered.length, providerNotices: providerNotices.length, ...(reported === undefined ? {} : {reportedIncidents}),
       byStatus: count(records.map((record) => record.status)), byAction: count(ordered.map((finding) => finding.action)) },
     complete: routes.length > 0 && ordered.length === 0 && records.every((record) => record.status === "conformant") };
 }
@@ -163,34 +223,71 @@ function propertyContains(property, url) {
 }
 function responseNoindex(observation) {
   const header = headerValue(observation, "x-robots-tag");
-  let agent = null;
-  for (let directive of (header ?? "").split(",")) {
-    const scoped = directive.match(/^\s*([\w-]+)\s*:\s*(.*)$/);
-    if (scoped && !["max-snippet", "max-image-preview", "max-video-preview", "unavailable_after"].includes(scoped[1].toLowerCase())) { agent = scoped[1].toLowerCase(); directive = scoped[2]; }
-    if ((agent === null || agent === "googlebot") && /(?:^|[;\s])(?:noindex|none)(?:$|[;\s])/i.test(directive)) return true;
+  const originals = observation.headerValues?.["x-robots-tag"];
+  let ambiguous = false;
+  for (const field of Array.isArray(originals) ? originals : [header ?? ""]) {
+    let agent = null;
+    for (let directive of field.split(",")) {
+      const scoped = directive.match(/^\s*([\w-]+)\s*:\s*(.*)$/);
+      const hasAgent = scoped && !["max-snippet", "max-image-preview", "max-video-preview", "unavailable_after"].includes(scoped[1].toLowerCase());
+      if (hasAgent) { agent = scoped[1].toLowerCase(); directive = scoped[2]; }
+      if (/(?:^|[;\s])(?:noindex|none)(?:$|[;\s])/i.test(directive)) {
+        if (agent === null || agent === "googlebot") return true;
+        // A joined Fetch value cannot prove whether this was another agent's
+        // same-field directive or a separate unscoped field applying to Google.
+        if (!Array.isArray(originals) && !hasAgent) ambiguous = true;
+      }
+    }
   }
   if (observation.method === "HEAD" || observation.bodyTruncated || typeof observation.body !== "string" || !/text\/html|application\/xhtml\+xml/i.test(headerValue(observation, "content-type") ?? "")) return null;
   const body = withoutInertContent(observation.body), metadata = tags(body, "meta");
   for (const attrs of metadata) if (["robots", "googlebot"].includes(attrs.name?.toLowerCase()) && /(?:^|[,\s])(?:noindex|none)(?:$|[,\s])/i.test(attrs.content ?? "")) return true;
   if ((body.match(/<meta\b/gi) ?? []).length !== metadata.length || metadata.some((attrs) => /&[\w#]+;/.test(attrs.name ?? "") || ["robots", "googlebot"].includes(attrs.name?.toLowerCase()) && /&[\w#]+;/.test(attrs.content ?? ""))) return null;
-  return false;
+  return ambiguous ? null : false;
 }
 function responseCanonicals(observation, redirect) {
   const found = [], location = headerValue(observation, "location");
   if (redirect && location) found.push(location);
   if (!redirect) {
-    for (const match of (headerValue(observation, "link") ?? "").matchAll(/<([^>]+)>\s*;\s*rel\s*=\s*["']?canonical\b/gi)) found.push(match[1]);
+    found.push(...canonicalHeaderReading(observation).targets);
     if (!observation.bodyTruncated && typeof observation.body === "string" && /text\/html|application\/xhtml\+xml/i.test(headerValue(observation, "content-type") ?? "")) for (const attrs of tags(withoutInertContent(observation.body), "link")) if (attrs.rel?.toLowerCase().split(/\s+/).includes("canonical") && attrs.href) found.push(attrs.href);
   }
   return [...new Set(found.map((value) => { try { return httpUrl(new URL(value.replace(/&amp;/g, "&"), observation.url).href); } catch { return "invalid-canonical-url"; } }))];
 }
 function canonicalInspectionIncomplete(observation) {
+  if (canonicalHeaderReading(observation).incomplete) return true;
   if (observation.method === "HEAD") return false;
   const type = headerValue(observation, "content-type");
   if (type && !/text\/html|application\/xhtml\+xml/i.test(type)) return false;
   if (observation.bodyTruncated || typeof observation.body !== "string") return true;
   const body = withoutInertContent(observation.body);
   return (body.match(/<link\b/gi) ?? []).length !== tags(body, "link").length;
+}
+function canonicalHeaderReading(observation) {
+  const targets = []; let incomplete = false;
+  for (const part of splitHeaderList(headerValue(observation, "link") ?? "", ",")) {
+    const match = /^\s*<([^<>]*)>(.*)$/s.exec(part);
+    if (!match || match[2].trim() && !/^\s*;/.test(match[2])) { incomplete = true; continue; }
+    const names = new Set(); let admitted = true;
+    for (const parameter of splitHeaderParameters(match[2])) {
+      const field = /^([a-zA-Z0-9*_-]+)\s*=\s*("(?:\\.|[^"\\])*"|[^;,\s"]+)$/.exec(parameter);
+      if (!field || names.has(field[1].toLowerCase())) { admitted = false; break; }
+      names.add(field[1].toLowerCase());
+    }
+    if (!admitted) { incomplete = true; continue; }
+    // The original Serialization owner supplies parameter-order and relation
+    // parsing. This receiving profile refuses unsupported/malformed fields
+    // instead of silently losing a contradictory canonical link.
+    const links = parseLinkHeader(part);
+    if (links.length !== 1) { incomplete = true; continue; }
+    const link = links[0];
+    if (link.params.anchor !== undefined) {
+      try { if (new URL(link.params.anchor, observation.url).href !== observation.url) continue; }
+      catch { incomplete = true; continue; }
+    }
+    if (link.params.rel?.toLowerCase().split(/\s+/).includes("canonical")) targets.push(link.href);
+  }
+  return {targets,incomplete};
 }
 function tags(body, name) {
   return [...body.matchAll(new RegExp(`<${name}\\b(?:[^>"']|"[^"]*"|'[^']*')*>`, "gi"))].map(([tag]) => {
@@ -213,7 +310,7 @@ function decodeAttribute(value) {
     return entities[entity] ?? original;
   });
 }
-function observationSignature(value) { return JSON.stringify([value.httpStatus ?? null, value.status, value.finalUrl ?? null, value.redirected ?? false, value.deploymentRevision ?? null, value.bodyTruncated ?? false, value.headers ?? {}, value.body ?? null]); }
+function observationSignature(value) { return JSON.stringify([value.httpStatus ?? null, value.status, value.finalUrl ?? null, value.redirected ?? false, value.deploymentRevision ?? null, value.bodyTruncated ?? false, value.headers ?? {}, value.headerValues ?? null, value.body ?? null]); }
 function reference(value) { return { id: value.id, source: value.source ?? "http-probe", url: value.url, method: value.method, observedAt: value.observedAt, ...(value.completedAt === undefined ? {} : { completedAt: value.completedAt }), httpStatus: value.httpStatus ?? null, deploymentRevision: value.deploymentRevision ?? null }; }
 function headerValue(value, name) { const key = Object.keys(value.headers ?? {}).find((key) => key.toLowerCase() === name); return key === undefined ? null : String(value.headers[key]); }
 function aggregate(statuses) { return statuses.includes("nonconformant") ? "nonconformant" : statuses.includes("unknown") ? "unknown" : "conformant"; }
